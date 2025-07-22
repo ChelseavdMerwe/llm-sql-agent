@@ -1,0 +1,55 @@
+networks:
+  llm_sql_net:
+    driver: bridge
+
+services:
+  app:
+    build: .
+    ports:
+      - "8001:8001"
+    networks:
+      - llm_sql_net
+    extra_hosts:
+      - "postgres-agent-db:host-gateway"  # Map container name to host
+    env_file: .env
+    environment:
+      - POSTGRES_URI=${POSTGRES_URI}
+      - REDIS_URL=redis://redis:6379/0
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      # Set AWS credss from host environment
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+    depends_on:
+      - redis
+      - mlflow
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - llm_sql_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    ports:
+      - "5000:5000"
+    command: mlflow server --host 0.0.0.0 --backend-store-uri sqlite:///mlflow.db --default-artifact-root /mlflow/artifacts
+    volumes:
+      - mlflow_data:/mlflow
+    networks:
+      - llm_sql_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000"] 
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  mlflow_data:
